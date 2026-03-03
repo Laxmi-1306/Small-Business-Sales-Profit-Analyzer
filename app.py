@@ -13,33 +13,42 @@ st.set_page_config(
     layout="wide"
 )
 
-# ---------------- CUSTOM CSS ----------------
-st.markdown("""
-<style>
-.main-title {
-    font-size:40px;
-    font-weight:bold;
-    text-align:center;
-    color:#2E86C1;
-}
-.sub-title {
-    font-size:20px;
-    text-align:center;
-    color:#117864;
-}
-.stButton>button {
-    background-color:#2E86C1;
-    color:white;
-    border-radius:8px;
-    height:3em;
-    width:100%;
-}
-</style>
-""", unsafe_allow_html=True)
-
 # ---------------- DATABASE ----------------
 db = get_db()
 cursor = db.cursor()
+
+# -------- CREATE EXTRA TABLES (IMPORTANT) ----------
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS businesses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    business_name TEXT
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    business_id INTEGER,
+    type TEXT,
+    amount REAL,
+    category TEXT
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS inventory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    business_id INTEGER,
+    product_name TEXT,
+    quantity INTEGER,
+    cost_price REAL,
+    selling_price REAL
+)
+""")
+
+db.commit()
 
 # ---------------- SESSION ----------------
 if "token" not in st.session_state:
@@ -50,10 +59,8 @@ if "token" not in st.session_state:
 # ==========================================================
 if not st.session_state.token:
 
-    st.markdown('<p class="main-title">Small Business Sales & Profit Analyzer</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-title">Secure Business Management System</p>', unsafe_allow_html=True)
+    st.title("🔐 Small Business Sales & Profit Analyzer")
 
-    st.sidebar.title("Menu")
     page = st.sidebar.radio("Navigation", ["Login", "Register"])
 
     # REGISTER
@@ -62,12 +69,12 @@ if not st.session_state.token:
         password = st.text_input("Password", type="password")
 
         if st.button("Register"):
-            cursor.execute("SELECT * FROM users WHERE username=%s", (username,))
+            cursor.execute("SELECT * FROM users WHERE username=?", (username,))
             if cursor.fetchone():
                 st.error("Username already exists")
             else:
                 cursor.execute(
-                    "INSERT INTO users (username, password) VALUES (%s,%s)",
+                    "INSERT INTO users (username, password) VALUES (?,?)",
                     (username, password)
                 )
                 db.commit()
@@ -80,7 +87,7 @@ if not st.session_state.token:
 
         if st.button("Login"):
             cursor.execute(
-                "SELECT id FROM users WHERE username=%s AND password=%s",
+                "SELECT id FROM users WHERE username=? AND password=?",
                 (username, password)
             )
             user = cursor.fetchone()
@@ -102,14 +109,10 @@ else:
         st.session_state.token = None
         st.rerun()
 
-    cursor.execute("SELECT username FROM users WHERE id=%s", (user_id,))
+    cursor.execute("SELECT username FROM users WHERE id=?", (user_id,))
     username = cursor.fetchone()[0].capitalize()
 
-    st.markdown('<p class="main-title">💰 Small Business Sales & Profit Analyzer</p>', unsafe_allow_html=True)
-
     st.sidebar.markdown(f"## 👋 Hello {username}")
-    st.sidebar.markdown("---")
-
     page = st.sidebar.radio(
         "Navigation",
         ["Dashboard", "Inventory", "Upload Excel", "Reports", "Admin", "Logout"]
@@ -125,17 +128,14 @@ else:
         business_name = st.text_input("Business Name")
 
         if st.button("Create Business"):
-            if business_name.strip() == "":
-                st.error("Enter business name")
-            else:
-                cursor.execute(
-                    "INSERT INTO businesses (user_id, business_name) VALUES (%s,%s)",
-                    (user_id, business_name)
-                )
-                db.commit()
-                st.success("Business created")
+            cursor.execute(
+                "INSERT INTO businesses (user_id, business_name) VALUES (?,?)",
+                (user_id, business_name)
+            )
+            db.commit()
+            st.success("Business created")
 
-        cursor.execute("SELECT id, business_name FROM businesses WHERE user_id=%s", (user_id,))
+        cursor.execute("SELECT id, business_name FROM businesses WHERE user_id=?", (user_id,))
         businesses = cursor.fetchall()
 
         if businesses:
@@ -156,7 +156,7 @@ else:
                 cursor.execute("""
                     INSERT INTO transactions
                     (user_id, business_id, type, amount, category)
-                    VALUES (%s,%s,%s,%s,%s)
+                    VALUES (?,?,?,?,?)
                 """, (user_id, business_id, t_type, amount, category))
                 db.commit()
                 st.success("Transaction added")
@@ -168,7 +168,7 @@ else:
 
         st.header("Inventory Management")
 
-        cursor.execute("SELECT id, business_name FROM businesses WHERE user_id=%s", (user_id,))
+        cursor.execute("SELECT id, business_name FROM businesses WHERE user_id=?", (user_id,))
         businesses = cursor.fetchall()
 
         if businesses:
@@ -188,7 +188,7 @@ else:
                 cursor.execute("""
                     INSERT INTO inventory
                     (business_id, product_name, quantity, cost_price, selling_price)
-                    VALUES (%s,%s,%s,%s,%s)
+                    VALUES (?,?,?,?,?)
                 """, (business_id, product_name, quantity, cost_price, selling_price))
                 db.commit()
                 st.success("Product added")
@@ -221,13 +221,7 @@ else:
 
             st.dataframe(df)
 
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total Sales", f"₹{df.sales.sum():,.0f}")
-            col2.metric("Total Expenses", f"₹{df.expenses.sum():,.0f}")
-            col3.metric("Total Profit", f"₹{df.profit.sum():,.0f}")
-
             daily = df.groupby("date")[["sales"]].sum().reset_index()
-
             forecast_df = daily.rename(columns={"date": "ds", "sales": "y"})
 
             model = Prophet()
@@ -244,9 +238,9 @@ else:
 # ==========================================================
     if page == "Reports":
 
-        st.header("Business Report Generation")
+        st.header("Business Report")
 
-        cursor.execute("SELECT id, business_name FROM businesses WHERE user_id=%s", (user_id,))
+        cursor.execute("SELECT id, business_name FROM businesses WHERE user_id=?", (user_id,))
         businesses = cursor.fetchall()
 
         if businesses:
@@ -260,7 +254,7 @@ else:
             cursor.execute("""
                 SELECT type, amount, category
                 FROM transactions
-                WHERE business_id=%s
+                WHERE business_id=?
             """, (business_id,))
 
             data = cursor.fetchall()
@@ -277,15 +271,7 @@ else:
                 st.info(f"Net Profit: ₹{profit}")
 
                 csv = df.to_csv(index=False).encode("utf-8")
-
-                st.download_button(
-                    "Download Excel Report",
-                    csv,
-                    "business_report.csv",
-                    "text/csv"
-                )
-            else:
-                st.warning("No transactions found for this business.")
+                st.download_button("Download Report", csv, "business_report.csv")
 
 # ==========================================================
 # ================= ADMIN ==================================
