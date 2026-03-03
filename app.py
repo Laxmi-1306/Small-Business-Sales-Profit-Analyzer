@@ -201,7 +201,7 @@ else:
 # ==========================================================
 if page == "Upload Excel":
 
-    st.header("📊 Smart Auto Analytics (Any CSV / Excel)")
+    st.header("📊Advanced Analytics & Visualization ")
 
     uploaded_file = st.file_uploader("Upload Any CSV or Excel File", type=["csv", "xlsx"])
 
